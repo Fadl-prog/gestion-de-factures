@@ -188,6 +188,177 @@ void delete_invoice(InvoiceNode** head , int invoice_id)
     printf("Facture avec l'id %d supprimee avec succes\n", invoice_id);
 }
 
+
+// Fonction isPaid qui retournera 1 si la liste contient au moins une liste paid, 0 sinon
+int isPaid(const InvoiceNode* head) {
+    InvoiceNode* temp = head;
+    while(temp != NULL) {
+        if(strcmp(temp->status, "paid") == 0)
+            return 1; // oui il y en a au moins une
+        temp = temp->next_invoice;
+    }
+    return 0; // aucune n'est paid
+}
+
+// Fonction pour compter les factures paid
+int count_paid(InvoiceNode* head) {
+    int count = 0;
+    const InvoiceNode* temp = head;
+    while (temp != NULL) {
+        if (strcmp(temp->status, "paid") == 0) {
+            count++;
+        }
+        temp = temp->next_invoice;
+    }
+    return count;
+}
+// Fonction pour compter les factures unpaid
+int count_unpaid(InvoiceNode* head) {
+    int count = 0;
+    const InvoiceNode* temp = head;
+    while (temp != NULL) {
+        if (strcmp(temp->status, "unpaid") == 0) {
+            count++;
+        }
+        temp = temp->next_invoice;
+    }
+    return count;
+}
+// Fonction pour compter les factures en retard
+int count_lateInv(InvoiceNode* head) {
+    int count = 0;
+    const InvoiceNode* temp = head;
+    while (temp != NULL) {
+        if (strcmp(temp->status, "late") == 0) {
+            count++;
+        }
+        temp = temp->next_invoice;
+    }
+    return count;
+}
+
+
+
+// Fonction sort_ByDate qui va trier les factures par date
+// comme on ne pourra pas comparer directement les dates vu le format dd-mm-yyyy grâce à strcmp,
+// l'idée ici c'est de parser la date (une sorte de conversion) en une structure qui va contenir 
+// par la suite le jour, le mois et l'année correspondants
+typedef struct {
+    int day;
+    int month;
+    int year;
+}Date;
+
+// voici donc la fonction (statique, réservée uniquement au fichier billing) pour parser la date
+static Date parseDate(const char* s) {
+    Date d;
+    sscanf(s, "%d-%d-%d", &d.day, &d.month, &d.year); 
+    return d;
+}
+// sscanf va retourner les éléments correctement lus à partir de s,
+// et remplir chaque élément de la structure par l'entier correspondant
+
+// enfin, voici le code pour sort_ByDate qui va suivre un algorithme de tri par insertion
+void sort_ByDate(InvoiceNode** head) {
+    // si la liste de factures est vide ou ne contient qu'une seule facture
+    if(*head == NULL || (*head)->next_invoice == NULL) {
+        printf("La liste est deja triee.\n"); 
+        return;
+    }
+    InvoiceNode* sort = NULL;       // liste triée partielle
+    InvoiceNode* current = *head;     // noeud courant à insérer
+    while(current != NULL) {
+        InvoiceNode* next = current->next_invoice; // pour sauvegarder le suivant
+        Date d = parseDate(current->due_date);
+        // insertion au début si la liste triée est vide ou si current est plus petit que le premier
+        if(sort == NULL) {
+            current->next_invoice = NULL;
+            sort = current;
+        } 
+        else {
+            InvoiceNode* temp = sort;
+            InvoiceNode* prev = NULL;
+            // on cherche mtn la position correcte dans sort
+            while(temp != NULL) {
+                Date d_temp = parseDate(temp->due_date);
+                if(d.year < d_temp.year || 
+                   (d.year == d_temp.year && d.month < d_temp.month) ||
+                   (d.year == d_temp.year && d.month == d_temp.month && d.day < d_temp.day)) {
+                    break; // position trouvée
+                }
+                // sinon, on continue de parcourir la liste
+                prev = temp;
+                temp = temp->next_invoice;
+            }
+            // insertion de current
+            if(prev == NULL) { // insertion au début
+                current->next_invoice = sort;
+                sort = current;
+            } 
+            else {           // insertion au milieu de sort ou à la fin
+                prev->next_invoice = current;
+                current->next_invoice = temp;
+            }
+        }
+        current = next; // on passe au noeud suivant
+    }
+    *head = sort; 
+}
+
+// Fonction sort_ByStudent qui effectue un tri des factures par ordre croissant des ID des étudiants
+// comme tout à l'heure, on suit un algorithme de tri par insertion
+void sort_ByStudent(InvoiceNode** head) {
+    if(*head == NULL || (*head)->next_invoice == NULL) {
+        printf("La liste est déjà triée.\n");
+        return;
+    }
+    InvoiceNode* sort = NULL;       // liste triée partielle
+    InvoiceNode* current = *head;     // noeud courant à insérer
+
+    while(current != NULL) {
+        InvoiceNode* next = current->next_invoice; // sauvegarder le suivant
+
+        // insertion dans sort à la bonne position
+        if(sort == NULL) {
+            current->next_invoice = NULL;
+            sort = current;
+        } 
+        else {
+            InvoiceNode* temp = sort;
+            InvoiceNode* prev = NULL;
+
+            // on cherche mtn la position correcte en comparant les ID 
+            while(temp != NULL && current->student_id > temp->student_id) {
+                prev = temp;
+                temp = temp->next_invoice;
+            }
+
+            // insertion de current
+            if(prev == NULL) { // début de la liste
+                current->next_invoice = sort;
+                sort = current;
+            } else {           // milieu ou fin
+                prev->next_invoice = current;
+                current->next_invoice = temp;
+            }
+        }
+        current = next; // passer au noeud suivant
+    }
+    *head = sort; 
+}
+
+// pour afficher la liste de factures
+void print_invoice_list(InvoiceNode* head) {
+    InvoiceNode* temp = head;
+    while(temp != NULL) {
+        printf("Facture ID = %d, StudentID = %d, Amount = %d, DueDate = %s, Status = %s\n",
+               temp->id, temp->student_id, temp->amount, temp->due_date, temp->status);
+        temp = temp->next_invoice;
+    }
+}
+
+
+
 int main()
 {
     //realiser une serie de tests pour verifier que les fonctions marchent bien

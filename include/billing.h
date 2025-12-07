@@ -30,5 +30,20 @@ void modify_invoice(InvoiceNode *head, int invoice_id);
 void delete_invoice(InvoiceNode** head, int invoice_id);
 //Fonction pour obtenir le statut d'une facture
 char* get_invoice_status(InvoiceNode* head, int invoice_id);
+/*Fonction qui vérifie si la liste des factures contient au moins une facture payée,
+retournera 1 si c'est le cas, 0 sinon*/
+int isPaid(InvoiceNode* head);
+// Fonction pour compter les factures paid
+int count_paid(InvoiceNode* head);
+// Fonction pour compter les factures unpaid
+int count_unpaid(InvoiceNode* head);
+// Fonction pour compter les factures en retard
+int count_lateInv(InvoiceNode* head);
+// Trier les factures par date
+void sort_ByDate(InvoiceNode** fact);
+// Trier les factures par élève 
+void sort_ByStudent(InvoiceNode** fact);
+// affiche la liste de factures
+void print_invoice_list(InvoiceNode* head);
 
 #endif

@@ -36,16 +36,16 @@ void parse_due_date(char* due_date,int* day ,int* month,int* year)
 }
 //Maintenant qu'on peut comparer les dates , faisons place a la detection de factures defectueuses
 
-InvoiceNode* detect_late_invoice(InvoiceNode** head)
+InvoiceNode* detect_late_invoice(InvoiceNode* head)
 {   
     InvoiceNode* late_invoices = NULL ; //initaliser une liste de factures en retard
     //si la liste est vide on ne fait rien
-    if(*head == NULL)
+    if(head == NULL)
     {
         printf("Il n'y'a aucune facture a verifier\n");
         return NULL;
     }
-    InvoiceNode* temp = *head;//Initiliser un temp a la tete de la liste des factures
+    InvoiceNode* temp = head;//Initiliser un temp a la tete de la liste des factures
     //les valeurs auxquels on va assigner la date d'aujourd'hui
     int today_day , today_month , today_year;
     get_today(&today_day , &today_month , &today_year);//La fonction get_today qu'on a cree auparavant
