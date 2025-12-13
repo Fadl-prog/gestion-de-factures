@@ -1,17 +1,50 @@
-#ifndef  REPORTS_H
+#ifndef REPORTS_H
 #define REPORTS_H
-#include "billing.h"
 
-// Fonction qui affichera un rapport global sur toutes les factures y compris le nb total de factures,
-// montant total, montant moyen, facture la plus élevée + ses infos (par ex id étudiant + id facture),
-// mm chose pour la facture la plus basse, nbres de factures : paid, unpaid et late
-void general_report(InvoiceNode* head);
-// fonction pour afficher un rapport par étudiant (contient nb total de factures, montant total, montant payé,
-// restant, liste de toutes les factures + leur statut, facture la plus élevée, basse, etc)
-void student_report(InvoiceNode* head, int student_id);
-// rapport mensuel, contient presque les memes points que précédemment
-void monthly_report(InvoiceNode* head, int month, int year);
-// rapport annuel (idem)
-void yearly_report(InvoiceNode* head, int year);
+#include "billing.h" 
 
- #endif 
+
+// Structure pour stocker les informations détaillées d'une seule facture (max/min)
+typedef struct {
+    int invoice_id;
+    int student_id;
+    int amount;
+} MaxMinInvoice;
+
+// Structure pour le rapport général
+typedef struct {
+    int total_invoices;// Nombre total de factures
+    int total_amount; // Montant total (somme de toutes les factures)
+    float average_amount;// Montant moyen
+    int count_paid;// Nombre de factures payées
+    int count_unpaid;// Nombre de factures non payées
+    int count_late;// Nombre de factures en retard
+    MaxMinInvoice highest;// Facture la plus élevée
+    MaxMinInvoice lowest;// Facture la plus basse
+} GeneralReport;
+
+// Structure pour le rapport étudiant
+typedef struct {
+    int total_invoices; // Total de factures pour cet étudiant
+    int total_billed; // Montant total facturé
+    int totl_paid; // Montant total payé
+    int total_remaining;// Montant restant à payer
+    InvoiceNode* student_invoices; // Liste chaînée des factures de cet étudiant (doit être libérée)
+} StudentReport;
+
+
+
+// Génère un rapport global sur toutes les factures.
+BILLING_API GeneralReport generate_general_report(InvoiceNode* head);
+
+// Génère un rapport détaillé pour un étudiant spécifique.
+// Nécessite de libérer la liste student_invoices à l'intérieur de la structure.
+BILLING_API StudentReport generate_student_report(InvoiceNode* head, int student_id);
+
+// Génère un rapport mensuel.
+BILLING_API GeneralReport generate_monthly_report(InvoiceNode* head, int month, int year);
+
+// Génère un rapport annuel.
+BILLING_API GeneralReport generate_yearly_report(InvoiceNode* head, int year);
+
+#endif 

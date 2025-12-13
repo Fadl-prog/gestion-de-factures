@@ -1,227 +1,236 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../include/billing.h"
-#include "../include/reminder.h"
+#include <limits.h>
+#include <float.h>
 #include "../include/reports.h"
 
 
+// Structure de date interne
+typedef struct {
+    int day;
+    int month;
+    int year;
+} Date;
 
-// fonction general report
-void general_report(InvoiceNode* head) {
-    if(head == NULL) {
-        printf("Aucun rapport a generer. Aucune facture detectee.\n");
-        return;
+// Analyse la chaîne de date "dd-mm-yyyy"
+static int parse_date(const char* due_date, int* day, int* month, int* year) {
+    if (sscanf(due_date, "%d-%d-%d", day, month, year) != 3) {
+        return 0;
     }
-    InvoiceNode* temp = head;
-    int nb_fact = 0;
-    float total_fact = 0.0f; // f four indiquer que c un float et non un double
-    float moyenne_fact = 0.0f;
-    int total_paid, total_unpaid, total_late;
+    return 1;
+}
 
-    // nb total de factures + montant total
-    while (temp != NULL) {
-        nb_fact++;
-        total_fact += temp->amount;
-        temp = temp->next_invoice;
-    }
-    // max et min
-    InvoiceNode* maxFact = head;
-    InvoiceNode* minFact = head;
-    temp = head->next_invoice;
-    while (temp != NULL) {
-        if (temp->amount > maxFact->amount)
-            maxFact = temp;
-        if (temp->amount < minFact->amount)
-            minFact = temp;
-        temp = temp->next_invoice;
-    }
-    // moyenne
-    moyenne_fact = total_fact / nb_fact;
-
-    total_paid = count_paid(head);
-    total_unpaid = count_unpaid(head);
-    total_late = count_lateInv(head);
-
-    printf("================RAPPORT GENERAL================\n");
-    printf("Nombre total de facture : %d\n", nb_fact);
-    printf("Montant total des factures : %.2f\n", total_fact);
-    printf("Montant moyen (moyenne de toutes les factures) : %.2f\n", moyenne_fact);
-    printf("Facture la plus elevee : %.2f  (ID Facture : %d, ID Etudiant : %d)\n", (float)maxFact->amount, maxFact->id, maxFact->student_id);
-    printf("Facture la plus basse : %.2f  (ID Facture : %d, ID Etudiant : %d)\n", (float)minFact->amount, minFact->id, minFact->student_id);
-    printf("Nombre de factures payées : %d\n", total_paid);
-    printf("Nombre de factures impayées : %d\n", total_unpaid);
-    printf("Nombre de factures en retard : %d\n", total_late);
+// Fonction utilitaire pour initialiser MaxMinInvoice
+static void initialize_max_min(MaxMinInvoice *inv) {
+    inv->invoice_id = -1;
+    inv->student_id = -1;
+    inv->amount = 0;
 }
 
 
-// fonction pour afficher rapport par étudiant
-void student_report(InvoiceNode* head, int student_id) {
-    if (head == NULL) {
-        printf("Aucun rapport a generer. Aucune facture detectee.\n");
-        return;
+// Fonction interne pour remplir le rapport général à partir d'une sous-liste
+static GeneralReport process_report(InvoiceNode* head) {
+    GeneralReport report = {0};
+    initialize_max_min(&report.highest);
+    initialize_max_min(&report.lowest);
+    
+    // Initialiser le montant min/max pour les comparaisons futures
+    int min_amount = INT_MAX; 
+    int max_amount = INT_MIN;
+    long total_amount_sum = 0; // Utiliser long pour éviter l'overflow
+    
+    InvoiceNode* current = head;
+    
+    while (current != NULL) {
+        report.total_invoices++;
+        total_amount_sum += current->amount;
+        
+        // Mettre à jour les compteurs de statut
+        if (strcmp(current->status, "paid") == 0) {
+            report.count_paid++;
+        } else if (strcmp(current->status, "unpaid") == 0) {
+            report.count_unpaid++;
+        } else if (strcmp(current->status, "late") == 0) {
+            report.count_late++;
+        }
+        
+        // Trouver la facture la plus élevée (Highest)
+        if (current->amount > max_amount) {
+            max_amount = current->amount;
+            report.highest.invoice_id = current->id;
+            report.highest.student_id = current->student_id;
+            report.highest.amount = current->amount;
+        }
+
+        // Trouver la facture la plus basse (Lowest)
+        if (current->amount < min_amount || report.total_invoices == 1) {
+            min_amount = current->amount;
+            report.lowest.invoice_id = current->id;
+            report.lowest.student_id = current->student_id;
+            report.lowest.amount = current->amount;
+        }
+        
+        current = current->next_invoice;
+    }
+    
+    report.total_amount = (int)total_amount_sum;
+    
+    // Calculer la moyenne
+    if (report.total_invoices > 0) {
+        report.average_amount = (float)total_amount_sum / report.total_invoices;
+    } else {
+        report.average_amount = 0.0f;
     }
 
-    InvoiceNode* temp = head;
+    return report;
+}
 
-    int nb_fact_etu = 0;
-    float total_fact_etu = 0.0f;
-    float moyenne_fact_etu = 0.0f;
+// Fonction interne pour filtrer la liste des factures par mois/année
+// Retourne une nouvelle liste chaînée (l'appelant doit la libérer)
+static InvoiceNode* filter_by_month_year(InvoiceNode* head, int month, int year) {
+    InvoiceNode* filtered_head = NULL;
+    InvoiceNode* filtered_tail = NULL;
+    InvoiceNode* current = head;
 
-    // pointeur vers la facture maximale de l'étudiant
-    InvoiceNode* maxFactEtu = NULL;
-
-    while (temp != NULL) {
-        if (temp->student_id == student_id) {
-            nb_fact_etu++;
-            total_fact_etu += (float)temp->amount;
-            // mise à jour du maximum
-            if (maxFactEtu == NULL || temp->amount > maxFactEtu->amount) {
-                maxFactEtu = temp;
+    while (current != NULL) {
+        int due_day, due_month, due_year;
+        
+        if (parse_date(current->due_date, &due_day, &due_month, &due_year)) {
+            // Filtrer par mois ET année (ou seulement par année si month est 0 pour le rapport annuel)
+            if (due_year == year && (month == 0 || due_month == month)) {
+                
+                // Créer une COPIE du nœud
+                InvoiceNode* new_node = (InvoiceNode*)malloc(sizeof(InvoiceNode));
+                if (new_node == NULL) {
+                    // En cas d'échec d'allocation, libérer la liste partielle et retourner NULL
+                    InvoiceNode *temp;
+                    while(filtered_head) {
+                        temp = filtered_head;
+                        filtered_head = filtered_head->next_invoice;
+                        free(temp);
+                    }
+                    return NULL;
+                }
+                
+                // Copier toutes les données du nœud original
+                memcpy(new_node, current, sizeof(InvoiceNode));
+                new_node->next_invoice = NULL;
+                
+                // Ajouter à la liste filtrée
+                if (filtered_head == NULL) {
+                    filtered_head = new_node;
+                    filtered_tail = new_node;
+                } else {
+                    filtered_tail->next_invoice = new_node;
+                    filtered_tail = new_node;
+                }
             }
         }
-        temp = temp->next_invoice;
+        current = current->next_invoice;
     }
-    if (nb_fact_etu == 0) {
-        printf("Aucune facture trouvée pour l'étudiant %d.\n", student_id);
-        return;
-    }
-    moyenne_fact_etu = total_fact_etu / nb_fact_etu;
-    // affichage du rapport
-    printf("=========== RAPPORT DE L'ETUDIANT %d ==========\n", student_id);
-    printf("Nombre total de factures : %d\n", nb_fact_etu);
-    printf("Montant total : %.2f\n", total_fact_etu);
-    printf("Moyenne : %.2f\n", moyenne_fact_etu);
-
-    if (maxFactEtu != NULL) {
-        printf("Facture maximale : %.2f MAD (ID facture %d)\n", maxFactEtu->amount, maxFactEtu->id);
-    }
-
-    temp = head;
-    printf("\n Liste des factures de l'etudiant %d :\n", student_id);
-    while(temp != NULL) {
-        if(temp->student_id == student_id) {
-            printf("- Facture %d | %11s | %.2f MAD | %s\n", temp->id, temp->due_date, (float)temp->amount, temp->status);
-        }
-        temp = temp->next_invoice;
-    }
-    
+    return filtered_head;
 }
 
-// Rapport mensuel 
-void monthly_report(InvoiceNode* head, int month, int year) {
-    if(head == NULL) {
-        printf("Aucun rapport a generer. Aucune facture detectee.\n");
-        return;
-    }
 
-    InvoiceNode* temp = head;
-    int nb_fact_mois = 0;
-    float total_fact_mois = 0.0f;
-    InvoiceNode* maxFactMois = NULL;
-    int d, m, y; 
 
-    while (temp != NULL) {
-      // on extrait dd-mm-yyyy avec la fonction parse_due_date (depuis le header reminder.h)
-        parse_due_date(temp->due_date, &d, &m, &y);
-        if (m == month && y == year) {
-            nb_fact_mois++;
-            total_fact_mois += (float)temp->amount;
-            if (maxFactMois == NULL || temp->amount > maxFactMois->amount) {
-                maxFactMois = temp;
+// Génère un rapport global sur toutes les factures.
+BILLING_API GeneralReport generate_general_report(InvoiceNode* head) {
+    // La liste head est la liste complète, on la passe directement pour le traitement.
+    return process_report(head);
+}
+
+// Génère un rapport détaillé pour un étudiant spécifique.
+BILLING_API StudentReport generate_student_report(InvoiceNode* head, int student_id) {
+    StudentReport report = {0};
+    report.totl_paid = 0; // S'assurer que le champ totl_paid est initialisé à 0
+    
+    InvoiceNode* current = head;
+    InvoiceNode* student_head = NULL;
+    InvoiceNode* student_tail = NULL;
+
+    while (current != NULL) {
+        if (current->student_id == student_id) {
+            report.total_invoices++;
+            report.total_billed += current->amount;
+            
+            if (strcmp(current->status, "paid") == 0) {
+                report.totl_paid += current->amount;
+            }
+
+            // Créer une COPIE du nœud pour la liste chaînée du rapport étudiant
+            InvoiceNode* new_node = (InvoiceNode*)malloc(sizeof(InvoiceNode));
+            if (new_node == NULL) {
+                // Gestion d'erreur: libérer la liste partielle avant de retourner
+                InvoiceNode *temp;
+                while(student_head) {
+                    temp = student_head;
+                    student_head = student_head->next_invoice;
+                    free(temp);
+                }
+                return (StudentReport){0}; // Retourner un rapport vide en cas d'échec
+            }
+            
+            memcpy(new_node, current, sizeof(InvoiceNode));
+            new_node->next_invoice = NULL;
+            
+            // Ajouter à la liste des factures de l'étudiant
+            if (student_head == NULL) {
+                student_head = new_node;
+                student_tail = new_node;
+            } else {
+                student_tail->next_invoice = new_node;
+                student_tail = new_node;
             }
         }
-        temp = temp->next_invoice;
-    }
-    if (nb_fact_mois == 0) {
-        printf("Aucune facture trouvee pour %02d/%d.\n", month, year);
-        return;
+        current = current->next_invoice;
     }
 
-    float moyenne_fact_mois = total_fact_mois / nb_fact_mois;
-
-    // affichage
-    printf("\n===== Rapport Mensuel : %02d/%d =====\n", month, year);
-    printf("Nombre total de factures : %d\n", nb_fact_mois);
-    printf("Montant total : %.2f MAD\n", total_fact_mois);
-    printf("Moyenne des factures : %.2f MAD\n", moyenne_fact_mois);
-
-    if (maxFactMois != NULL) {
-        printf("Facture maximale : %.2f MAD (ID : %d, Etudiant : %d, Date : %s, Statut : %s)\n",
-               (float)maxFactMois->amount, maxFactMois->id, maxFactMois->student_id,
-               maxFactMois->due_date, maxFactMois->status);
-    }
-
-    printf("\nListe des factures du mois :\n");
-    temp = head;
-    while (temp != NULL) {
-        parse_due_date(temp->due_date, &d, &m, &y);
-        if (m == month && y == year) {
-            printf(" - Facture : %d | Etudiant : %d | %02d-%02d-%04d | %.2f MAD | %s\n",
-                   temp->id, temp->student_id,
-                   d, m, y,
-                   (float)temp->amount,
-                   temp->status);
-        }
-        temp = temp->next_invoice;
-    }
+    report.total_remaining = report.total_billed - report.totl_paid;
+    report.student_invoices = student_head;
+    
+    return report;
 }
 
-// rapport annuel 
-void yearly_report(InvoiceNode* head, int year) {
-    if(head == NULL) {
-        printf("Aucun rapport a generer. Aucune facture detectee.\n");
-        return;
-    }
-    InvoiceNode* temp = head;
-    int nb_fact_an = 0;
-    float total_fact_an = 0.0f;
-    int d, m, y;
-    InvoiceNode* maxFactAn = NULL;
-    while(temp != NULL) {
-        parse_due_date(temp->due_date,&d,&m,&y);
-        if(y == year) {
-            nb_fact_an++;
-            total_fact_an += (float)temp->amount;
-            if(maxFactAn == NULL || temp->amount > maxFactAn->amount){
-            maxFactAn = temp;
-            }
-        }
-        temp = temp->next_invoice;
-    }
+// Génère un rapport mensuel.
+BILLING_API GeneralReport generate_monthly_report(InvoiceNode* head, int month, int year) {
+    // 1. Filtrer la liste pour ne garder que les factures du mois/année spécifiés
+    InvoiceNode* filtered_list = filter_by_month_year(head, month, year);
 
-    if(nb_fact_an == 0) {
-        printf("Il n'y a aucune facture enregistree en %d.\n", year);
-        return;
-    }
-
-    float moyenne_fact_an = total_fact_an / nb_fact_an;
-    // affichage
-    printf("\n========= RAPPORT ANNUEL : ANNEE %d =========\n", year);
-    printf("Nombre total de factures : %d\n", nb_fact_an);
-    printf("Montant total : %.2f MAD\n", total_fact_an);
-    printf("Moyenne des factures : %.2f MAD\n", moyenne_fact_an);
-
-    if(maxFactAn != NULL) {
-        printf("Facture maximale : %.2f MAD (ID: %d, Etudiant: %d, Date: %s, Statut: %s)\n",
-        (float)maxFactAn->amount, maxFactAn->id, maxFactAn->student_id, maxFactAn->due_date, maxFactAn->status);
-    }
+    // 2. Traiter le rapport sur la liste filtrée
+    GeneralReport report = process_report(filtered_list);
     
-    temp = head;
-    printf("\nListe des factures enregistrees en %d\n", year);
-    while(temp !=  NULL){
-        parse_due_date(temp->due_date,&d,&m,&y);
-        if(y == year) {
-            printf(" - Facture %d | Etudiant %d | %02d-%02d-%04d | %.2f MAD | %s\n",
-                   temp->id, temp->student_id,
-                   d, m, y,
-                   (float)temp->amount,
-                   temp->status);
-        }
-       temp = temp->next_invoice;
+    // 3. IMPORTANT: Libérer la mémoire de la liste filtrée temporaire
+    InvoiceNode* current = filtered_list;
+    InvoiceNode* next;
+    while (current != NULL) {
+        next = current->next_invoice;
+        free(current);
+        current = next;
     }
-    
+
+    return report;
 }
+
+// Génère un rapport annuel.
+BILLING_API GeneralReport generate_yearly_report(InvoiceNode* head, int year) {
+    // Pour le rapport annuel, on utilise la même fonction de filtrage en passant 0 pour le mois.
+    // L'implémentation de filter_by_month_year doit gérer le cas où month est 0 (regarder le code statique).
     
+    // 1. Filtrer la liste pour ne garder que les factures de l'année spécifiée (month=0)
+    InvoiceNode* filtered_list = filter_by_month_year(head, 0, year);
 
+    // 2. Traiter le rapport sur la liste filtrée
+    GeneralReport report = process_report(filtered_list);
+    
+    // 3. IMPORTANT: Libérer la mémoire de la liste filtrée temporaire
+    InvoiceNode* current = filtered_list;
+    InvoiceNode* next;
+    while (current != NULL) {
+        next = current->next_invoice;
+        free(current);
+        current = next;
+    }
 
+    return report;
+}
