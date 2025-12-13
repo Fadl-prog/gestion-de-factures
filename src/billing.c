@@ -2,12 +2,12 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <string.h>
-#include "sqlite3.h"          // Inclusion de la librairie SQLite
-#include "../include/billing.h" // Votre header corrigé
+#include "sqlite3.h"          
+#include "../include/billing.h" 
 
 #define DB_NAME "billing.db"
 
-// Structure de date interne pour le tri (identique à précédemment)
+// Structure de date interne pour le tri 
 typedef struct {
     int day;
     int month;
@@ -254,8 +254,6 @@ BILLING_API int delete_invoice(InvoiceNode** head, int invoice_id)
 }
 
 
-// Les fonctions suivantes sont uniquement en lecture mémoire (rapide), 
-// car la liste RAM est toujours synchronisée avec la DB.
 
 BILLING_API char* get_invoice_status(InvoiceNode* head, int invoice_id)
 {
@@ -306,7 +304,6 @@ BILLING_API int count_lateInv(InvoiceNode* head) {
     return count;
 }
 
-// Tris (Agissent uniquement sur la liste RAM)
 
 BILLING_API void sort_ByDate(InvoiceNode** head) {
     if(*head == NULL || (*head)->next_invoice == NULL) return;
