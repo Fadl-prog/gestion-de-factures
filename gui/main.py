@@ -198,7 +198,7 @@ class AppFacturation(ctk.CTk):
         header_fmt = "{:<5} | {:<12} | {:<15} | {:<12} | {:<10}\n"
         separator = "-" * 75 + "\n"
         
-        self.invoice_text.insert("end", header_fmt.format("ID", "Étudiant ID", "Montant (€)", "Échéance", "Statut"))
+        self.invoice_text.insert("end", header_fmt.format("ID", "Étudiant ID", "Montant (dh)", "Échéance", "Statut"))
         self.invoice_text.insert("end", separator)
 
         for inv in invoice_list_py:
@@ -349,8 +349,8 @@ class AppFacturation(ctk.CTk):
         msg = (
             f"--- RAPPORT GÉNÉRAL ---\n\n"
             f"Total Factures : {report.total_invoices}\n"
-            f"Chiffre d'Affaires : {report.total_amount} €\n"
-            f"Moyenne : {report.average_amount:.2f} €\n\n"
+            f"Chiffre d'Affaires : {report.total_amount} dh\n"
+            f"Moyenne : {report.average_amount:.2f} dh\n\n"
             f"Payées : {report.count_paid}\n"
             f"En Attente : {report.count_unpaid}\n"
             f"En Retard : {report.count_late}\n"
