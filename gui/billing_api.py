@@ -1,5 +1,5 @@
 import ctypes
-from ctypes import c_int, c_float, c_char_p, POINTER, Structure, CDLL
+from ctypes import c_int, c_float, c_char_p, POINTER, Structure, CDLL 
 
 # chemin relatif 
 import os
@@ -76,12 +76,32 @@ billing_lib.modify_invoice.restype = c_int
 billing_lib.delete_invoice.argtypes = [POINTER(POINTER(InvoiceNode)), c_int]
 billing_lib.delete_invoice.restype = c_int
 
+# sort_ByDate
+billing_lib.sort_ByDate.argtypes = [POINTER(POINTER(InvoiceNode))]
+billing_lib.sort_ByDate.restype = None
+
+# sort_ByStudent  
+billing_lib.sort_ByStudent.argtypes = [POINTER(POINTER(InvoiceNode))]
+billing_lib.sort_ByStudent.restype = None
+
 # --- Fonctions DATABASE (SQLite) ---  <-- NOUVEAU ICI
 billing_lib.init_db.argtypes = []
 billing_lib.init_db.restype = c_int
 
 billing_lib.load_invoices_from_db.argtypes = []
 billing_lib.load_invoices_from_db.restype = POINTER(InvoiceNode)
+
+# load_students_from_db
+billing_lib.load_students_from_db.argtypes = []
+billing_lib.load_students_from_db.restype = POINTER(Student)
+
+# create_student_in_db
+billing_lib.create_student_in_db.argtypes = [c_char_p, c_char_p]
+billing_lib.create_student_in_db.restype = c_int
+
+# get_student_by_id
+billing_lib.get_student_by_id.argtypes = [POINTER(Student), c_int]
+billing_lib.get_student_by_id.restype = POINTER(Student)
 
 # --- Fonctions de REMINDER ---
 billing_lib.detect_late_invoice.argtypes = [POINTER(InvoiceNode)]
@@ -95,9 +115,10 @@ billing_lib.generate_student_report.argtypes = [POINTER(InvoiceNode), c_int]
 billing_lib.generate_student_report.restype = StudentReport
 
 
+
 # --- 4. FONCTION UTILITAIRE PYTHON ---
 
-def list_c_to_python(head_ptr: POINTER(InvoiceNode)) -> list[dict]:
+def list_c_to_python(head_ptr):
     python_list = []
     current_ptr = head_ptr
     while current_ptr: 

@@ -24,6 +24,7 @@ from billing_api import (
 
 # Pointeur vers la tête de la liste (initialisé à NULL au départ)
 INVOICE_HEAD_PTR = POINTER(InvoiceNode)()
+STUDENTS_HEAD_PTR = None  # pointeur vers la liste des étudiants
 # Compteur pour les étudiants (juste pour la création, dans un vrai cas on lirait une table Student)
 STUDENT_ID_COUNTER = 1 
 
@@ -56,6 +57,15 @@ class AppFacturation(ctk.CTk):
         self.btn_refresh = ctk.CTkButton(self.frame_actions, text="Rafraîchir Liste", command=self.update_invoice_display)
         self.btn_refresh.pack(pady=10, padx=20, fill="x")
 
+        # après btn_refresh
+        self.btn_sort_date = ctk.CTkButton(self.frame_actions, text="Trier par Date", 
+                                   command=self.sort_by_date)
+        self.btn_sort_date.pack(pady=5, padx=20, fill="x")
+
+        self.btn_sort_student = ctk.CTkButton(self.frame_actions, text="Trier par Étudiant", 
+                                      command=self.sort_by_student)
+        self.btn_sort_student.pack(pady=5, padx=20, fill="x")
+
         self.btn_detect_late = ctk.CTkButton(self.frame_actions, text="Détecter Retards", command=self.detect_and_show_late, fg_color="#D35B58", hover_color="#C72C41")
         self.btn_detect_late.pack(pady=10, padx=20, fill="x")
 
@@ -83,25 +93,94 @@ class AppFacturation(ctk.CTk):
 
 
     def initialize_database(self):
-        """Initialise SQLite et charge les données."""
-        global INVOICE_HEAD_PTR
-        
-        # 1. Créer la table si elle n'existe pas (Appel C)
-        success = billing_lib.init_db()
-        if not success:
-            messagebox.showerror("Erreur", "Impossible d'initialiser la base de données (init_db failed).")
-            return
+     """Initialise SQLite et charge les données."""
+     global INVOICE_HEAD_PTR, STUDENTS_HEAD_PTR  # AJOUTE STUDENTS_HEAD_PTR 
+    
+     #  créer la table si elle n'existe pas (Appel C)
+     success = billing_lib.init_db()
+     if not success:
+        messagebox.showerror("Erreur", "Impossible d'initialiser la base de données (init_db failed).")
+        return
 
-        # 2. Charger les données depuis le fichier .db vers la liste C
-        loaded_head = billing_lib.load_invoices_from_db()
-        
-        # 3. Mettre à jour notre pointeur global Python
-        if loaded_head:
-            INVOICE_HEAD_PTR = loaded_head
-            self.update_invoice_display()
-        else:
-            # Si vide, on affiche juste un message vide
-            self.update_invoice_display()
+    #  charger les données depuis le fichier .db vers la liste C
+     loaded_head = billing_lib.load_invoices_from_db()
+    
+    #  charger les étudiants depuis la DB (NOUVEAU)
+     STUDENTS_HEAD_PTR = billing_lib.load_students_from_db()
+     if STUDENTS_HEAD_PTR:
+        print(f"Étudiants chargés depuis la DB")
+     else:
+        print("Aucun étudiant dans la DB ou chargement échoué")
+    
+    #  mettre à jour notre pointeur global Python
+     if loaded_head:
+        INVOICE_HEAD_PTR = loaded_head
+        self.update_invoice_display()
+     else:
+        # si vide, on affiche juste un message vide
+        self.update_invoice_display()
+
+
+  
+    def student_list_to_python(head_ptr):
+     """Convertit liste chaînée C d'étudiants en liste Python."""
+     students = []
+     current = head_ptr
+    
+     while current:
+        try:
+            student = current.contents
+        except ValueError:
+            break
+            
+        students.append({
+            'id': student.id,
+            'name': student.name.decode('utf-8').strip('\x00'),
+            'classe': student.classe.decode('utf-8').strip('\x00')
+        })
+        current = student.next_student
+    
+     return students
+
+
+
+    def open_add_student_dialog(self):
+     """Ajoute un nouvel étudiant."""
+     global STUDENTS_HEAD_PTR
+    
+     dialog = ctk.CTkInputDialog(
+        text="Format: NOM, CLASSE\nEx: Jean Dupont, Terminale A",
+        title="Nouvel Étudiant"
+    )
+     input_data = dialog.get_input()
+    
+     if input_data:
+        try:
+            parts = input_data.split(',')
+            if len(parts) != 2:
+                raise ValueError("Format: Nom, Classe")
+            
+            name = parts[0].strip()
+            classe = parts[1].strip()
+            
+            # Appel à la fonction C
+            success = billing_lib.create_student_in_db(
+                name.encode('utf-8'),
+                classe.encode('utf-8')
+            )
+            
+            if success:
+                messagebox.showinfo("Succès", f"Étudiant {name} ajouté")
+                # Recharger la liste des étudiants
+                STUDENTS_HEAD_PTR = billing_lib.load_students_from_db()
+            else:
+                messagebox.showerror("Erreur", "Échec création étudiant")
+                
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Saisie invalide: {e}")
+
+
+
 
 
     def update_invoice_display(self):
@@ -141,43 +220,105 @@ class AppFacturation(ctk.CTk):
         self.invoice_text.configure(state="disabled")
 
 
+
     def open_add_invoice_dialog(self):
-        """Ajoute une facture via C (qui l'écrira aussi en DB)."""
-        dialog = ctk.CTkInputDialog(text="Format: MONTANT, DATE (Ex: 500, 31-12-2025)", title="Nouvelle Facture")
-        input_data = dialog.get_input()
-        
-        if input_data:
-            try:
-                parts = input_data.split(',')
-                if len(parts) != 2:
-                    raise ValueError("Format attendu: Montant, Date")
-
-                amount = int(parts[0].strip())
-                date = parts[1].strip()
-                
-                # Pour l'exemple, on crée un étudiant générique
-                global STUDENT_ID_COUNTER 
-                new_student = Student(id=STUDENT_ID_COUNTER, name=b"Etudiant", classe=b"A1")
-                STUDENT_ID_COUNTER += 1
-
-                # Appel C : Crée le noeud RAM + INSERT INTO DB
-                result = billing_lib.create_invoice(
-                    ctypes.byref(INVOICE_HEAD_PTR), 
-                    ctypes.byref(new_student), 
-                    amount, 
-                    date.encode('utf-8')
-                )
-                
-                if result:
-                    messagebox.showinfo("Succès", "Facture sauvegardée en base de données.")
-                    self.update_invoice_display()
-                else:
-                    messagebox.showerror("Erreur C", "Erreur lors de la création.")
-                
-            except Exception as e:
-                messagebox.showerror("Erreur", f"Saisie invalide: {e}")
-
+     """Ajoute une facture avec sélection d'étudiant."""
+     global STUDENTS_HEAD_PTR, INVOICE_HEAD_PTR
     
+     # 1. Vérifier s'il y a des étudiants
+     students_list = AppFacturation.student_list_to_python(STUDENTS_HEAD_PTR)
+    
+     if not students_list:
+        # Demander de créer un étudiant
+        if messagebox.askyesno("Aucun étudiant", 
+                              "Aucun étudiant dans la base.\nVoulez-vous en créer un ?"):
+            self.open_add_student_dialog()
+        return
+    
+     # 2. Boîte de dialogue SIMPLE
+     dialog = ctk.CTkInputDialog(
+        text="Format: ID_ÉTUDIANT, MONTANT, DATE\nEx: 1, 500, 31-12-2024\n\nÉtudiants disponibles:\n" + 
+             "\n".join([f"ID {s['id']}: {s['name']} ({s['classe']})" for s in students_list]),
+        title="Nouvelle Facture"
+     )
+    
+     input_data = dialog.get_input()
+    
+     if input_data:
+        try:
+            parts = input_data.split(',')
+            if len(parts) != 3:
+                raise ValueError("Format: ID_Étudiant, Montant, Date")
+            
+            student_id = int(parts[0].strip())
+            amount = int(parts[1].strip())
+            due_date = parts[2].strip()
+            
+            # Chercher l'étudiant
+            student_obj = None
+            for s in students_list:
+                if s['id'] == student_id:
+                    student_obj = s
+                    break
+            
+            if not student_obj:
+                messagebox.showerror("Erreur", f"Étudiant ID {student_id} non trouvé")
+                return
+            
+            if amount <= 0:
+                messagebox.showerror("Erreur", "Montant > 0 requis")
+                return
+            
+            # Créer la facture
+            new_student_c = Student(
+                id=student_id, 
+                name=student_obj['name'].encode('utf-8'), 
+                classe=student_obj['classe'].encode('utf-8')
+            )
+            
+            result = billing_lib.create_invoice(
+                ctypes.byref(INVOICE_HEAD_PTR), 
+                ctypes.byref(new_student_c), 
+                amount, 
+                due_date.encode('utf-8')
+            )
+            
+            if result:
+                messagebox.showinfo("Succès", f"Facture créée pour {student_obj['name']}")
+                self.update_invoice_display()
+            else:
+                messagebox.showerror("Erreur", "Échec création")
+                
+        except Exception as e:
+            messagebox.showerror("Erreur", f"Saisie invalide: {e}")
+    
+
+    def sort_by_date(self):
+      """Trie les factures par date."""
+      global INVOICE_HEAD_PTR
+    
+      if not INVOICE_HEAD_PTR:
+        messagebox.showinfo("Info", "Aucune facture à trier")
+        return
+    
+      billing_lib.sort_ByDate(ctypes.byref(INVOICE_HEAD_PTR))
+      self.update_invoice_display()
+      messagebox.showinfo("Succès", "Factures triées par date")
+
+    def sort_by_student(self):
+      """Trie les factures par étudiant."""
+      global INVOICE_HEAD_PTR
+    
+      if not INVOICE_HEAD_PTR:
+        messagebox.showinfo("Info", "Aucune facture à trier")
+        return
+    
+      billing_lib.sort_ByStudent(ctypes.byref(INVOICE_HEAD_PTR))
+      self.update_invoice_display()
+      messagebox.showinfo("Succès", "Factures triées par étudiant")
+
+
+
     def detect_and_show_late(self):
         """Détecte les retards."""
         
@@ -194,6 +335,7 @@ class AppFacturation(ctk.CTk):
             messagebox.showwarning("Alerte Retards", msg)
         else:
             messagebox.showinfo("Info", "Aucun nouveau retard.")
+
 
 
     def show_general_report(self):
@@ -267,5 +409,5 @@ class AppFacturation(ctk.CTk):
 
 
 if __name__ == "__main__":
-    app = AppFacturation()
-    app.mainloop()
+ app = AppFacturation()
+ app.mainloop()
