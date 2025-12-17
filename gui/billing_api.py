@@ -1,9 +1,9 @@
 import ctypes
 from ctypes import c_int, c_float, c_char_p, POINTER, Structure, CDLL
 
-# --- 0. DÉFINITION DU CHEMIN ABSOLU DE LA DLL ---
-# Vérifiez que ce chemin est toujours correct pour votre PC
-DLL_PATH = r"C:\Users\net\Desktop\gestion-de-factures\gui\billing_api.dll"
+# chemin relatif 
+import os
+DLL_PATH = os.path.join(os.path.dirname(__file__), "billing_api.dll")
 
 # --- 1. CHARGEMENT DE LA LIBRAIRIE C ---
 try:

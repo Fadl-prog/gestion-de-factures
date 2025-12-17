@@ -37,42 +37,54 @@ typedef struct InvoiceNode {
 
 
 
-// Créer une nouvelle facture
+// Fonction pour créer une nouvelle facture
 BILLING_API InvoiceNode* create_invoice(InvoiceNode** head, Student* student, int amount,const char* due_date);
 
-// Modifier une facture
+// Fonction pour modifier une facture
 BILLING_API int modify_invoice(InvoiceNode *head, int invoice_id, int new_amount, const char* new_due_date, const char* new_status);
 
-// Supprimer une facture
+// Fonction pour supprimer une facture
 BILLING_API int delete_invoice(InvoiceNode** head, int invoice_id);
 
-// Obtenir le statut d'une facture
+// Fonction pour obtenir le statut d'une facture
 BILLING_API char* get_invoice_status(InvoiceNode* head, int invoice_id);
 
-// Vérifier si au moins une facture est payée
+// Fonction pour sélectionner un étudiant à partir de son ID
+BILLING_API Student* get_student_by_id(Student* head, int student_id);
+
+// Fonction pour vérifier si au moins une facture est payée
 BILLING_API int isPaid(const InvoiceNode* head);
 
-// Compter les factures payées
+// Fonction pour compter les factures payées
 BILLING_API int count_paid(InvoiceNode* head);
 
-// Compter les factures non payées
+// Fonction pour compter les factures non payées
 BILLING_API int count_unpaid(InvoiceNode* head);
 
-// Compter les factures en retard
+// Fonction pour compter les factures en retard
 BILLING_API int count_lateInv(InvoiceNode* head);
 
-// Trier par date
+// Fonction pour trier les factures par date
 BILLING_API void sort_ByDate(InvoiceNode** fact);
 
-// Trier par étudiant
+// Fonction pour trier les factures par étudiant
 BILLING_API void sort_ByStudent(InvoiceNode** fact);
 
-// Afficher la liste des factures
+// Fonction pour afficher la liste des factures
 BILLING_API void print_invoice_list(InvoiceNode* head);
 
-// Initialiser la base de données (Crée la table si elle n'existe pas)
+// (BASE DE DONNEES)
+
+// Fonction pour initialiser la base de données (crée la table si elle n'existe pas)
 BILLING_API int init_db();
 
-// Charger les factures depuis la DB vers la liste chaînée au démarrage
+// Fonction pour charger les factures depuis la DB vers la liste chaînée au démarrage
 BILLING_API InvoiceNode* load_invoices_from_db();
+
+// Fonction pour charger la liste des étudiants
+BILLING_API Student* load_students_from_db();
+
+// Fonction pour l'ajout d'un étudiant
+BILLING_API int create_student_in_db(const char* name, const char* classe);
+
 #endif // BILLING_H

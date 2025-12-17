@@ -24,9 +24,10 @@ static Date parseDate(const char* s) {
 BILLING_API int init_db() {
     sqlite3 *db;
     char *err_msg = 0;
+    int rc;
     
-    // Ouvrir (ou créer) la base de données
-    int rc = sqlite3_open(DB_NAME, &db);
+    // pour ouvrir (ou créer) la base de données
+    rc = sqlite3_open(DB_NAME, &db);
     
     if (rc != SQLITE_OK) {
         fprintf(stderr, "Erreur ouverture DB: %s\n", sqlite3_errmsg(db));
@@ -34,24 +35,40 @@ BILLING_API int init_db() {
         return 0;
     }
 
-    // Requête SQL pour créer la table si elle n'existe pas
-    const char *sql = 
-        "CREATE TABLE IF NOT EXISTS Invoices ("
-        "id INTEGER PRIMARY KEY,"  // On gère l'ID manuellement pour le sync avec la liste C
-        "student_id INTEGER, "
-        "amount INTEGER, "
-        "due_date TEXT, "
-        "status TEXT);";
+    // on crée tout d'abord la table Students
+    const char *sql_students = 
+        "CREATE TABLE IF NOT EXISTS Students ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "  
+        "name TEXT NOT NULL, "
+        "classe TEXT NOT NULL);";
 
-    rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
+    rc = sqlite3_exec(db, sql_students, 0, 0, &err_msg);
     
     if (rc != SQLITE_OK) {
-        fprintf(stderr, "Erreur SQL: %s\n", err_msg);
+        fprintf(stderr, "Erreur création Students: %s\n", err_msg);
         sqlite3_free(err_msg);
         sqlite3_close(db);
         return 0;
     }
 
+    // on crée mtn la table Invoices (avec clé étrangère)
+    const char *sql_invoices = 
+        "CREATE TABLE IF NOT EXISTS Invoices ("
+        "id INTEGER PRIMARY KEY, "
+        "student_id INTEGER, "
+        "amount INTEGER, "
+        "due_date TEXT, "
+        "status TEXT, "
+        "FOREIGN KEY(student_id) REFERENCES Students(id));";
+
+    rc = sqlite3_exec(db, sql_invoices, 0, 0, &err_msg);
+    
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "Erreur création Invoices: %s\n", err_msg);
+        sqlite3_free(err_msg);
+        sqlite3_close(db);
+        return 0;
+    }
     sqlite3_close(db);
     return 1;
 }
@@ -93,7 +110,7 @@ BILLING_API InvoiceNode* load_invoices_from_db() {
 
             new_node->next_invoice = NULL;
 
-            // Reconstruction de la liste chaînée
+            // on reconstruit la liste chaînée
             if (head == NULL) {
                 head = new_node;
                 tail = new_node;
@@ -109,6 +126,112 @@ BILLING_API InvoiceNode* load_invoices_from_db() {
     return head;
 }
 
+
+// Charger les étudiants depuis la DB
+BILLING_API Student* load_students_from_db() {
+    sqlite3 *db;
+    sqlite3_stmt *stmt;
+    Student *head = NULL;
+    Student *tail = NULL;
+    
+    if (sqlite3_open(DB_NAME, &db) != SQLITE_OK) {
+        fprintf(stderr, "Erreur ouverture DB pour load_students_from_db\n");
+        return NULL;
+    }
+    
+    const char *sql = "SELECT id, name, classe FROM Students ORDER BY id ASC;";
+    
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, 0) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            Student* new_student = (Student*)malloc(sizeof(Student));
+            if (!new_student) {
+                fprintf(stderr, "Erreur allocation mémoire Student\n");
+                break;
+            }
+            
+            // on récupère l'id de l'étudiant
+            new_student->id = sqlite3_column_int(stmt, 0);
+            
+            // son nom également
+            const unsigned char* name = sqlite3_column_text(stmt, 1);
+            if (name) {
+                strncpy(new_student->name, (const char*)name, sizeof(new_student->name)-1);
+                new_student->name[sizeof(new_student->name)-1] = '\0';
+            } else {
+                new_student->name[0] = '\0';
+            }
+            
+            // sa classe aussi
+            const unsigned char* classe = sqlite3_column_text(stmt, 2);
+            if (classe) {
+                strncpy(new_student->classe, (const char*)classe, sizeof(new_student->classe)-1);
+                new_student->classe[sizeof(new_student->classe)-1] = '\0';
+            } else {
+                new_student->classe[0] = '\0';
+            }
+            
+            new_student->next_student = NULL;
+            
+            // ajout à la liste chainée
+            if (head == NULL) {
+                head = new_student;
+                tail = new_student;
+            } else {
+                tail->next_student = new_student;
+                tail = new_student;
+            }
+        }
+    } else {
+        fprintf(stderr, "Erreur préparation requête students: %s\n", sqlite3_errmsg(db));
+    }
+    
+    sqlite3_finalize(stmt);
+    sqlite3_close(db);
+    return head;
+}
+
+// Fonction pour la création d'un étudiant dans la base de données
+BILLING_API int create_student_in_db(const char* name, const char* classe) {
+    if (!name || !classe) return 0;
+    
+    sqlite3 *db;
+    if (sqlite3_open(DB_NAME, &db) != SQLITE_OK) {
+        fprintf(stderr, "Erreur ouverture DB pour create_student_in_db\n");
+        return 0;
+    }
+    
+    char *sql = sqlite3_mprintf(
+        "INSERT INTO Students (name, classe) VALUES ('%q', '%q');",
+        name, classe
+    );
+    
+    char *err_msg = 0;
+    int rc = sqlite3_exec(db, sql, 0, 0, &err_msg);
+    
+    if (rc != SQLITE_OK) {
+        fprintf(stderr, "SQL Error create_student_in_db: %s\n", err_msg);
+        sqlite3_free(err_msg);
+        sqlite3_free(sql);
+        sqlite3_close(db);
+        return 0;
+    }
+    
+    sqlite3_free(sql);
+    sqlite3_close(db);
+    return 1;
+}
+
+// Fonction pour obtenir un étudiant par ID
+BILLING_API Student* get_student_by_id(Student* head, int student_id) {
+    Student* temp = head;
+    while (temp != NULL) {
+        if (temp->id == student_id) {
+            return temp;
+        }
+        temp = temp->next_student;
+    }
+    return NULL;
+}
 
 // ==============================
 // Fonctions Exportées (API) - Logique Métier + DB
