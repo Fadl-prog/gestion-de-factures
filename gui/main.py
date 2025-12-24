@@ -25,8 +25,6 @@ from billing_api import (
 # Pointeur vers la tête de la liste (initialisé à NULL au départ)
 INVOICE_HEAD_PTR = POINTER(InvoiceNode)()
 STUDENTS_HEAD_PTR = None  # pointeur vers la liste des étudiants
-# Compteur pour les étudiants (juste pour la création, dans un vrai cas on lirait une table Student)
-STUDENT_ID_COUNTER = 1 
 
 class AppFacturation(ctk.CTk):
     def __init__(self):
@@ -34,7 +32,7 @@ class AppFacturation(ctk.CTk):
 
         # Configuration de la fenêtre
         self.title("Gestion de Factures avec Base de Données (SQLite)")
-        self.geometry("1100x700")
+        self.geometry("1100x750") # Légèrement agrandi pour les nouveaux boutons
         ctk.set_appearance_mode("System")
         ctk.set_default_color_theme("blue")
 
@@ -51,21 +49,33 @@ class AppFacturation(ctk.CTk):
         lbl_actions = ctk.CTkLabel(self.frame_actions, text="ACTIONS", font=ctk.CTkFont(size=20, weight="bold"))
         lbl_actions.pack(pady=(20, 10))
 
+        # --- Gestion CRUD ---
         self.btn_add = ctk.CTkButton(self.frame_actions, text="Ajouter Facture", command=self.open_add_invoice_dialog)
         self.btn_add.pack(pady=10, padx=20, fill="x")
         
+        # NOUVEAU : Bouton Modifier
+        self.btn_modify = ctk.CTkButton(self.frame_actions, text="Modifier Facture", command=self.open_modify_invoice_dialog, fg_color="#E0A800", hover_color="#B58900")
+        self.btn_modify.pack(pady=10, padx=20, fill="x")
+
+        # NOUVEAU : Bouton Supprimer
+        self.btn_delete = ctk.CTkButton(self.frame_actions, text="Supprimer Facture", command=self.open_delete_invoice_dialog, fg_color="#C0392B", hover_color="#922B21")
+        self.btn_delete.pack(pady=10, padx=20, fill="x")
+
+        ctk.CTkLabel(self.frame_actions, text="-----------------").pack(pady=5)
+
         self.btn_refresh = ctk.CTkButton(self.frame_actions, text="Rafraîchir Liste", command=self.update_invoice_display)
         self.btn_refresh.pack(pady=10, padx=20, fill="x")
 
-        # après btn_refresh
+        # --- Tris ---
         self.btn_sort_date = ctk.CTkButton(self.frame_actions, text="Trier par Date", 
-                                   command=self.sort_by_date)
+                                       command=self.sort_by_date)
         self.btn_sort_date.pack(pady=5, padx=20, fill="x")
 
         self.btn_sort_student = ctk.CTkButton(self.frame_actions, text="Trier par Étudiant", 
-                                      command=self.sort_by_student)
+                                          command=self.sort_by_student)
         self.btn_sort_student.pack(pady=5, padx=20, fill="x")
 
+        # --- Outils ---
         self.btn_detect_late = ctk.CTkButton(self.frame_actions, text="Détecter Retards", command=self.detect_and_show_late, fg_color="#D35B58", hover_color="#C72C41")
         self.btn_detect_late.pack(pady=10, padx=20, fill="x")
 
@@ -93,95 +103,52 @@ class AppFacturation(ctk.CTk):
 
 
     def initialize_database(self):
-     """Initialise SQLite et charge les données."""
-     global INVOICE_HEAD_PTR, STUDENTS_HEAD_PTR  # AJOUTE STUDENTS_HEAD_PTR 
-    
-     #  créer la table si elle n'existe pas (Appel C)
-     success = billing_lib.init_db()
-     if not success:
-        messagebox.showerror("Erreur", "Impossible d'initialiser la base de données (init_db failed).")
-        return
+        """Initialise SQLite et charge les données."""
+        global INVOICE_HEAD_PTR, STUDENTS_HEAD_PTR 
+        
+        success = billing_lib.init_db()
+        if not success:
+            messagebox.showerror("Erreur", "Impossible d'initialiser la base de données (init_db failed).")
+            return
 
-    #  charger les données depuis le fichier .db vers la liste C
-     loaded_head = billing_lib.load_invoices_from_db()
-    
-    #  charger les étudiants depuis la DB (NOUVEAU)
-     STUDENTS_HEAD_PTR = billing_lib.load_students_from_db()
-     if STUDENTS_HEAD_PTR:
-        print(f"Étudiants chargés depuis la DB")
-     else:
-        print("Aucun étudiant dans la DB ou chargement échoué")
-    
-    #  mettre à jour notre pointeur global Python
-     if loaded_head:
-        INVOICE_HEAD_PTR = loaded_head
-        self.update_invoice_display()
-     else:
-        # si vide, on affiche juste un message vide
-        self.update_invoice_display()
+        loaded_head = billing_lib.load_invoices_from_db()
+        
+        STUDENTS_HEAD_PTR = billing_lib.load_students_from_db()
+        if STUDENTS_HEAD_PTR:
+            print(f"Étudiants chargés depuis la DB")
+        else:
+            print("Aucun étudiant dans la DB ou chargement échoué")
+        
+        if loaded_head:
+            INVOICE_HEAD_PTR = loaded_head
+            self.update_invoice_display()
+        else:
+            self.update_invoice_display()
 
 
-  
+    # -------------------------------------------------------------------------
+    # Fonctions Utilitaires
+    # -------------------------------------------------------------------------
+
     def student_list_to_python(head_ptr):
-     """Convertit liste chaînée C d'étudiants en liste Python."""
-     students = []
-     current = head_ptr
-    
-     while current:
-        try:
-            student = current.contents
-        except ValueError:
-            break
-            
-        students.append({
-            'id': student.id,
-            'name': student.name.decode('utf-8').strip('\x00'),
-            'classe': student.classe.decode('utf-8').strip('\x00')
-        })
-        current = student.next_student
-    
-     return students
-
-
-
-    def open_add_student_dialog(self):
-     """Ajoute un nouvel étudiant."""
-     global STUDENTS_HEAD_PTR
-    
-     dialog = ctk.CTkInputDialog(
-        text="Format: NOM, CLASSE\nEx: Jean Dupont, Terminale A",
-        title="Nouvel Étudiant"
-    )
-     input_data = dialog.get_input()
-    
-     if input_data:
-        try:
-            parts = input_data.split(',')
-            if len(parts) != 2:
-                raise ValueError("Format: Nom, Classe")
-            
-            name = parts[0].strip()
-            classe = parts[1].strip()
-            
-            # Appel à la fonction C
-            success = billing_lib.create_student_in_db(
-                name.encode('utf-8'),
-                classe.encode('utf-8')
-            )
-            
-            if success:
-                messagebox.showinfo("Succès", f"Étudiant {name} ajouté")
-                # Recharger la liste des étudiants
-                STUDENTS_HEAD_PTR = billing_lib.load_students_from_db()
-            else:
-                messagebox.showerror("Erreur", "Échec création étudiant")
+        """Convertit liste chaînée C d'étudiants en liste Python."""
+        students = []
+        current = head_ptr
+        
+        while current:
+            try:
+                student = current.contents
+            except ValueError:
+                break
                 
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Saisie invalide: {e}")
-
-
-
-
+            students.append({
+                'id': student.id,
+                'name': student.name.decode('utf-8').strip('\x00'),
+                'classe': student.classe.decode('utf-8').strip('\x00')
+            })
+            current = student.next_student
+        
+        return students
 
     def update_invoice_display(self):
         """Affiche la liste actuelle."""
@@ -219,105 +186,243 @@ class AppFacturation(ctk.CTk):
         self.invoice_text.tag_config("late_tag", foreground="#FF4D4D")
         self.invoice_text.configure(state="disabled")
 
+    # -------------------------------------------------------------------------
+    # Actions CRUD (Create, Read, Update, Delete)
+    # -------------------------------------------------------------------------
 
+    def open_add_student_dialog(self):
+        """Ajoute un nouvel étudiant."""
+        global STUDENTS_HEAD_PTR
+        
+        dialog = ctk.CTkInputDialog(
+            text="Format: NOM, CLASSE\nEx: Jean Dupont, Terminale A",
+            title="Nouvel Étudiant"
+        )
+        input_data = dialog.get_input()
+        
+        if input_data:
+            try:
+                parts = input_data.split(',')
+                if len(parts) != 2:
+                    raise ValueError("Format: Nom, Classe")
+                
+                name = parts[0].strip()
+                classe = parts[1].strip()
+                
+                success = billing_lib.create_student_in_db(
+                    name.encode('utf-8'),
+                    classe.encode('utf-8')
+                )
+                
+                if success:
+                    messagebox.showinfo("Succès", f"Étudiant {name} ajouté")
+                    STUDENTS_HEAD_PTR = billing_lib.load_students_from_db()
+                else:
+                    messagebox.showerror("Erreur", "Échec création étudiant")
+                    
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Saisie invalide: {e}")
 
     def open_add_invoice_dialog(self):
-     """Ajoute une facture avec sélection d'étudiant."""
-     global STUDENTS_HEAD_PTR, INVOICE_HEAD_PTR
-    
-     # 1. Vérifier s'il y a des étudiants
-     students_list = AppFacturation.student_list_to_python(STUDENTS_HEAD_PTR)
-    
-     if not students_list:
-        # Demander de créer un étudiant
-        if messagebox.askyesno("Aucun étudiant", 
-                              "Aucun étudiant dans la base.\nVoulez-vous en créer un ?"):
-            self.open_add_student_dialog()
-        return
-    
-     # 2. Boîte de dialogue SIMPLE
-     dialog = ctk.CTkInputDialog(
-        text="Format: ID_ÉTUDIANT, MONTANT, DATE\nEx: 1, 500, 31-12-2024\n\nÉtudiants disponibles:\n" + 
-             "\n".join([f"ID {s['id']}: {s['name']} ({s['classe']})" for s in students_list]),
-        title="Nouvelle Facture"
-     )
-    
-     input_data = dialog.get_input()
-    
-     if input_data:
-        try:
-            parts = input_data.split(',')
-            if len(parts) != 3:
-                raise ValueError("Format: ID_Étudiant, Montant, Date")
-            
-            student_id = int(parts[0].strip())
-            amount = int(parts[1].strip())
-            due_date = parts[2].strip()
-            
-            # Chercher l'étudiant
-            student_obj = None
-            for s in students_list:
-                if s['id'] == student_id:
-                    student_obj = s
-                    break
-            
-            if not student_obj:
-                messagebox.showerror("Erreur", f"Étudiant ID {student_id} non trouvé")
-                return
-            
-            if amount <= 0:
-                messagebox.showerror("Erreur", "Montant > 0 requis")
-                return
-            
-            # Créer la facture
-            new_student_c = Student(
-                id=student_id, 
-                name=student_obj['name'].encode('utf-8'), 
-                classe=student_obj['classe'].encode('utf-8')
-            )
-            
-            result = billing_lib.create_invoice(
-                ctypes.byref(INVOICE_HEAD_PTR), 
-                ctypes.byref(new_student_c), 
-                amount, 
-                due_date.encode('utf-8')
-            )
-            
-            if result:
-                messagebox.showinfo("Succès", f"Facture créée pour {student_obj['name']}")
-                self.update_invoice_display()
-            else:
-                messagebox.showerror("Erreur", "Échec création")
+        """Ajoute une facture avec sélection d'étudiant."""
+        global STUDENTS_HEAD_PTR, INVOICE_HEAD_PTR
+        
+        students_list = AppFacturation.student_list_to_python(STUDENTS_HEAD_PTR)
+        
+        if not students_list:
+            if messagebox.askyesno("Aucun étudiant", 
+                                  "Aucun étudiant dans la base.\nVoulez-vous en créer un ?"):
+                self.open_add_student_dialog()
+            return
+        
+        dialog = ctk.CTkInputDialog(
+            text="Format: ID_ÉTUDIANT, MONTANT, DATE\nEx: 1, 500, 31-12-2024\n\nÉtudiants disponibles:\n" + 
+                 "\n".join([f"ID {s['id']}: {s['name']} ({s['classe']})" for s in students_list]),
+            title="Nouvelle Facture"
+        )
+        
+        input_data = dialog.get_input()
+        
+        if input_data:
+            try:
+                parts = input_data.split(',')
+                if len(parts) != 3:
+                    raise ValueError("Format: ID_Étudiant, Montant, Date")
                 
-        except Exception as e:
-            messagebox.showerror("Erreur", f"Saisie invalide: {e}")
-    
+                student_id = int(parts[0].strip())
+                amount = int(parts[1].strip())
+                due_date = parts[2].strip()
+                
+                student_obj = None
+                for s in students_list:
+                    if s['id'] == student_id:
+                        student_obj = s
+                        break
+                
+                if not student_obj:
+                    messagebox.showerror("Erreur", f"Étudiant ID {student_id} non trouvé")
+                    return
+                
+                if amount <= 0:
+                    messagebox.showerror("Erreur", "Montant > 0 requis")
+                    return
+                
+                new_student_c = Student(
+                    id=student_id, 
+                    name=student_obj['name'].encode('utf-8'), 
+                    classe=student_obj['classe'].encode('utf-8')
+                )
+                
+                result = billing_lib.create_invoice(
+                    ctypes.byref(INVOICE_HEAD_PTR), 
+                    ctypes.byref(new_student_c), 
+                    amount, 
+                    due_date.encode('utf-8')
+                )
+                
+                if result:
+                    messagebox.showinfo("Succès", f"Facture créée pour {student_obj['name']}")
+                    self.update_invoice_display()
+                else:
+                    messagebox.showerror("Erreur", "Échec création")
+                    
+            except Exception as e:
+                messagebox.showerror("Erreur", f"Saisie invalide: {e}")
+
+    # --- NOUVEAU : Supprimer Facture ---
+    def open_delete_invoice_dialog(self):
+        """Demande l'ID et supprime la facture."""
+        global INVOICE_HEAD_PTR
+        
+        dialog = ctk.CTkInputDialog(
+            text="Entrez l'ID de la facture à supprimer :",
+            title="Supprimer Facture"
+        )
+        input_str = dialog.get_input()
+        
+        if input_str:
+            try:
+                invoice_id = int(input_str)
+                # Confirmation de sécurité
+                if not messagebox.askyesno("Confirmation", f"Voulez-vous vraiment supprimer la facture ID {invoice_id} ?"):
+                    return
+
+                # Appel C : delete_invoice prend un pointeur de pointeur (**head)
+                res = billing_lib.delete_invoice(ctypes.byref(INVOICE_HEAD_PTR), invoice_id)
+                
+                if res == 1:
+                    messagebox.showinfo("Succès", f"Facture {invoice_id} supprimée.")
+                    self.update_invoice_display()
+                else:
+                    messagebox.showerror("Erreur", f"Facture ID {invoice_id} introuvable.")
+            except ValueError:
+                messagebox.showerror("Erreur", "L'ID doit être un nombre entier.")
+
+    # --- NOUVEAU : Modifier Facture (Fenêtre dédiée) ---
+    def open_modify_invoice_dialog(self):
+        """Ouvre une fenêtre pour modifier une facture existante."""
+        
+        # Création d'une fenêtre secondaire (Toplevel)
+        modify_window = ctk.CTkToplevel(self)
+        modify_window.title("Modifier Facture")
+        modify_window.geometry("400x450")
+        modify_window.grab_set() # Focus sur cette fenêtre
+
+        # 1. ID Facture
+        ctk.CTkLabel(modify_window, text="ID de la Facture à modifier :").pack(pady=5)
+        entry_id = ctk.CTkEntry(modify_window, placeholder_text="Ex: 1")
+        entry_id.pack(pady=5)
+
+        ctk.CTkLabel(modify_window, text="--- Nouvelles Valeurs ---").pack(pady=10)
+        ctk.CTkLabel(modify_window, text="(Laisser vide ou -1 pour ne pas changer)", text_color="gray").pack(pady=0)
+
+        # 2. Nouveau Montant
+        ctk.CTkLabel(modify_window, text="Nouveau Montant :").pack(pady=5)
+        entry_amount = ctk.CTkEntry(modify_window, placeholder_text="Ex: 600 (ou -1)")
+        entry_amount.pack(pady=5)
+
+        # 3. Nouvelle Date
+        ctk.CTkLabel(modify_window, text="Nouvelle Date :").pack(pady=5)
+        entry_date = ctk.CTkEntry(modify_window, placeholder_text="jj-mm-aaaa")
+        entry_date.pack(pady=5)
+
+        # 4. Nouveau Statut
+        ctk.CTkLabel(modify_window, text="Nouveau Statut :").pack(pady=5)
+        combo_status = ctk.CTkComboBox(modify_window, values=["", "paid", "unpaid", "late"])
+        combo_status.pack(pady=5)
+
+        # Fonction de validation interne
+        def submit_modification():
+            try:
+                inv_id_str = entry_id.get()
+                if not inv_id_str:
+                    messagebox.showerror("Erreur", "ID Facture requis.", parent=modify_window)
+                    return
+                inv_id = int(inv_id_str)
+
+                # Gestion du montant
+                amount_str = entry_amount.get()
+                new_amount = int(amount_str) if amount_str else -1
+                
+                # Gestion de la date
+                new_date = entry_date.get().strip()
+                
+                # Gestion du statut
+                new_status = combo_status.get().strip()
+
+                # Appel C : modify_invoice prend le pointeur simple (*head)
+                # Signature C : modify_invoice(head, id, new_amount, new_date, new_status)
+                res = billing_lib.modify_invoice(
+                    INVOICE_HEAD_PTR,
+                    inv_id,
+                    new_amount,
+                    new_date.encode('utf-8'),
+                    new_status.encode('utf-8')
+                )
+
+                if res == 1:
+                    messagebox.showinfo("Succès", "Facture mise à jour.", parent=modify_window)
+                    self.update_invoice_display()
+                    modify_window.destroy()
+                elif res == 0:
+                    messagebox.showerror("Erreur", "Facture introuvable.", parent=modify_window)
+                else:
+                    messagebox.showerror("Erreur", "Statut invalide ou erreur interne.", parent=modify_window)
+
+            except ValueError:
+                messagebox.showerror("Erreur", "ID et Montant doivent être des nombres.", parent=modify_window)
+
+        # Bouton Valider
+        btn_confirm = ctk.CTkButton(modify_window, text="Valider les modifications", command=submit_modification, fg_color="#E0A800", hover_color="#B58900")
+        btn_confirm.pack(pady=20)
+
+    # -------------------------------------------------------------------------
+    # Tris et Outils
+    # -------------------------------------------------------------------------
 
     def sort_by_date(self):
-      """Trie les factures par date."""
-      global INVOICE_HEAD_PTR
-    
-      if not INVOICE_HEAD_PTR:
-        messagebox.showinfo("Info", "Aucune facture à trier")
-        return
-    
-      billing_lib.sort_ByDate(ctypes.byref(INVOICE_HEAD_PTR))
-      self.update_invoice_display()
-      messagebox.showinfo("Succès", "Factures triées par date")
+        """Trie les factures par date."""
+        global INVOICE_HEAD_PTR
+        
+        if not INVOICE_HEAD_PTR:
+            messagebox.showinfo("Info", "Aucune facture à trier")
+            return
+        
+        billing_lib.sort_ByDate(ctypes.byref(INVOICE_HEAD_PTR))
+        self.update_invoice_display()
+        messagebox.showinfo("Succès", "Factures triées par date")
 
     def sort_by_student(self):
-      """Trie les factures par étudiant."""
-      global INVOICE_HEAD_PTR
-    
-      if not INVOICE_HEAD_PTR:
-        messagebox.showinfo("Info", "Aucune facture à trier")
-        return
-    
-      billing_lib.sort_ByStudent(ctypes.byref(INVOICE_HEAD_PTR))
-      self.update_invoice_display()
-      messagebox.showinfo("Succès", "Factures triées par étudiant")
-
-
+        """Trie les factures par étudiant."""
+        global INVOICE_HEAD_PTR
+        
+        if not INVOICE_HEAD_PTR:
+            messagebox.showinfo("Info", "Aucune facture à trier")
+            return
+        
+        billing_lib.sort_ByStudent(ctypes.byref(INVOICE_HEAD_PTR))
+        self.update_invoice_display()
+        messagebox.showinfo("Succès", "Factures triées par étudiant")
 
     def detect_and_show_late(self):
         """Détecte les retards."""
@@ -331,12 +436,14 @@ class AppFacturation(ctk.CTk):
         if count > 0:
             msg = f"{count} facture(s) sont maintenant EN RETARD :\n\n"
             for inv in late_invoices_py:
-                msg += f"• ID {inv['id']} - {inv['amount']}€\n"
+                msg += f"• ID {inv['id']} - {inv['amount']} dh\n"
             messagebox.showwarning("Alerte Retards", msg)
         else:
             messagebox.showinfo("Info", "Aucun nouveau retard.")
 
-
+    # -------------------------------------------------------------------------
+    # Rapports
+    # -------------------------------------------------------------------------
 
     def show_general_report(self):
         """Affiche le rapport."""
@@ -356,7 +463,6 @@ class AppFacturation(ctk.CTk):
             f"En Retard : {report.count_late}\n"
         )
         messagebox.showinfo("Rapport", msg)
-
 
     def generate_pdf_report(self):
         """Génère le PDF."""
@@ -391,7 +497,7 @@ class AppFacturation(ctk.CTk):
             
             lines = [
                 (f"Total Factures : {report.total_invoices}", colors.black),
-                (f"Montant Total : {report.total_amount} €", colors.black),
+                (f"Montant Total : {report.total_amount} dh", colors.black),
                 (f"Payées : {report.count_paid}", colors.green),
                 (f"Non Payées : {report.count_unpaid}", colors.red),
             ]
